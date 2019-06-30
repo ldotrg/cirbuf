@@ -13,3 +13,6 @@ underlying array.
 2. the "mirrored" buffer is then placed beside the buffer.
    When the user polls the item it doesn't matter if the item crosses the buffer's boundary:
 ![cirbuf_mmap_portal](docs/circular_buffer_mmap_portal.png)
+
+## Hackmd
+[FP11: Ringbuffer (dutsai)](https://hackmd.io/wYY7ZxOjQSObarbXHeMgVA?both)

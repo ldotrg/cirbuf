@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <errno.h>
 
 typedef struct {
     unsigned long int size;
@@ -17,28 +18,59 @@ typedef struct {
 #define MAP_ANONYMOUS MAP_ANON
 #endif
 
-static void create_buffer_mirror(cirbuf_t *cb)
+static int create_buffer_mirror(cirbuf_t *cb)
 {
     char path[] = "/tmp/cirbuf-XXXXXX";
-    int fd = mkstemp(path);
-    unlink(path);
-    ftruncate(fd, cb->size);
-    /* FIXME: validate if mkstemp, unlink, ftruncate failed */
+    int fd, rc = 0;
+    if((fd = mkstemp(path)) < 0 ) {
+        fprintf(stderr, "Create temporary fail. %s\n", strerror(errno));
+        rc = -1;
+        goto exit;
+    }
+
+    if((rc = unlink(path) < 0)) {
+        fprintf(stderr, "unlink fail. %s rc=[%d]\n", strerror(errno), rc);
+        rc = -1;
+        goto exit;
+    }
+
+    if((rc = ftruncate(fd, cb->size) < 0)) {
+        fprintf(stderr, "ftruncate fail. %s rc=[%d]\n", strerror(errno), rc);
+        rc = -1;
+        goto exit;
+    }
 
     /* create the array of data */
+    /* Allocate the memory which own by process*/
     cb->data = mmap(NULL, cb->size << 1, PROT_NONE, MAP_ANONYMOUS | MAP_PRIVATE,
                     -1, 0);
     /* FIXME: validate if cb->data != MAP_FAILED */
-
+    if (cb->data == MAP_FAILED) {
+        fprintf(stderr, "1st mmap fail. %s \n", strerror(errno));
+        rc = -1;
+        goto exit;
+    }
+    /* Page Address aligment */
     void *address = mmap(cb->data, cb->size, PROT_READ | PROT_WRITE,
                          MAP_FIXED | MAP_SHARED, fd, 0);
     /* FIXME: validate if address == cb->data */
+    if(address != cb->data) {
+        fprintf(stderr, "2nd mmap fail. %s \n", strerror(errno));
+        rc = -1;
+        goto exit;
+    }
 
     address = mmap(cb->data + cb->size, cb->size, PROT_READ | PROT_WRITE,
                    MAP_FIXED | MAP_SHARED, fd, 0);
     /* FIXME: validate if address == cb->data + cb->size */
-
+    if(address != cb->data + cb->size) {
+        fprintf(stderr, "3rd mmap fail. %s \n", strerror(errno));
+        rc = -1;
+        goto exit;
+    }
+exit:
     close(fd);
+    return rc;
 }
 
 /** Create new circular buffer.
@@ -85,6 +117,7 @@ static inline int cirbuf_offer(cirbuf_t *cb,
     memcpy(cb->data + cb->tail, data, written);
     cb->tail += written;
     /* TODO: add your code here */
+    if (cb->size < cb->tail) cb->tail %= cb->size;
     return written;
 }
 
@@ -108,7 +141,7 @@ static inline unsigned char *cirbuf_peek(const cirbuf_t *cb)
         return NULL;
 
     /* TODO: add your own code here */
-    return NULL;
+    return cb->data + cb->head;
 }
 
 /** Release data at the head from the circular buffer.
